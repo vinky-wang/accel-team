@@ -5,6 +5,9 @@ output:
   bookdown::html_document2:
     number_sections: true
     highlight: tango
+    toc: yes
+    toc_float: yes
+    theme: cosmo
 editor_options:
   chunk_output_type: console
 ---
@@ -142,7 +145,8 @@ table(BlacktipB_1min$state)/length(BlacktipB_1min$state)
 
 BlacktipB_1min %>% mutate(day = day(Time)) %>% 
   ggplot(aes(Time,state)) + 
-  facet_wrap(~day) + geom_point()
+  #facet_wrap(~day,scales = "free_x") + 
+  geom_point()
 ```
 
 Let's include retryFits in the fitHMM function. This can take time to run.
@@ -234,6 +238,9 @@ Let's explore the results. Do the coefficients vary much? What about the ACF? Di
 plotPR(fit2)
 ```
 
+## Model section: Akaike Information Criteria (AIC)
+
+Akaike information criteria (AIC) is a model selection criteria to select models. In a few words, the higher, the better (or equivalently, since values are always negative, the closer to zero, the better).
 We can also take a quick look at the Akaike information criteria (AIC) for the two models to do a comparison. 
 
 ```{r}
@@ -241,3 +248,5 @@ AIC(fit1)
 AIC(fit2)
 ```
 
+
+# Exercises
