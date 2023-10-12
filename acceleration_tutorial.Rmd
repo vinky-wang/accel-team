@@ -1,6 +1,6 @@
 ---
-title: 'HMM in Marine Sciences: model selection, covariates, hierarchical structures' 
-author: "Marco Gallegos Herrada and Vianey Leos Barajas"
+title: 'HMM in Marine Sciences: incorporation of covariates and model selection' 
+author: "Marco Gallegos Herrada and Vinky Wang"
 output: 
   bookdown::html_document2:
     number_sections: true
@@ -30,42 +30,76 @@ knitr::opts_chunk$set(message = FALSE)
 ```
 
 
+# Tutorial objectives
+
+The goal of this tutorial is to explore how to fit hidden Markov models to accelerometer data, incorporate covariates into the transition probabilities, and use a classic model selection criteria to select the "best" model out of different candidates.
+
+The goal of this tutorial is to explore fitting hidden Markov models to accelerometer data, incorporate covariates into the transition probabilities, and select for the best candidate model. We use 4 days of acceleration data obtained from a free-ranging blacktip reef shark at Palmyra Atoll in the central Pacific Ocean (data taken from Leos-Barajas et al. 2017). Specificly, the following topics wil be covered throughout this tutorial:
+
+  - Resampling data (Down sampling) (???)
+  - Reef shark basic HMM example
+  - Adding covariates
+  - Visualization (Depth time series with decoded states?)
+
+
+# Accelerometer data
+
+Accelerometer devices measure up to three axes, which can be described relative to the body of the animal: longitudinal (surge), lateral (sway) and dorsoventral (heave). These devices are becoming more prevalent in the fields of animal biologging data as they provide a means of measuring activity in a meaningful and quantitative way. From tri-axial acceleration data, we can also derive several measures that summarize effort or exertion and relate acceleration  to activity levels such as overall dynamic body acceleration (ODBA) and vectorial dynamic body acceleration (VeDBA).
+
+```{r,fig.align='center',echo=F}
+
+knitr::include_graphics("ODBA_pic.png")
+
+
+```
+
+ODBA and VeDBA can be used to reduce the dimensionality of three-dimension acceleration data while retaining important information. Further, because acceleration data is often at high temporal resolutions over time, it also naturally exhibits a large degree of autocorrelation, making it impossible to assume independence between sequential observations. HMMs can account for the autocorrelation present in the data while assuming that the data were generated according to a finite set of (unobserved) behaviors making them a good candidate model for this type of data structure. For the blacktip shark, we have time of day, water temperature, depth (in meters) and ODBA.
 
 ```{r}
+# R packages that will be used for this tutorial
 library(readr)
 library(momentuHMM)
 library(ggplot2)
 library(dplyr)
 library(lubridate)
-library(data.tree)
-library(DiagrammeR)
-```
-
-# Tutorial objectives
-
-The goal of this tutorial is to explore how to fit hidden Markov models to accelerometer data, incorporate covariates into the transition probabilities, 
-
-The goal of this tutorial is to explore fitting hidden Markov models to accelerometer data, incorporate covariates into the transition probabilities, and select for the best candidate model. We use 4 days of acceleration data obtained from a free-ranging blacktip reef shark at Palmyra Atoll in the central Pacific Ocean (data taken from Leos-Barajas et al. 2017). 
 
 
-# Accelerometer data
-
-Accelerometer devices measure up to three axes, which can be described relative to the body of the animal: longitudinal (surge), lateral (sway) and dorsoventral (heave). These devices are becoming more prevalent in the fields of animal biologging data as they provide a means of measuring activity in a meaningful and quantitative way. From tri-axial acceleration data, we can also derive several measures that summarize effort or exertion and relate acceleration  to activity levels such as overall dynamic body acceleration (ODBA) and vectorial dynamic body acceleration (VeDBA). These metrics can be used to reduce the dimensionality of three-dimension acceleration data while retaining important information. Further, because acceleration data is often at high temporal resolutions over time, it also naturally exhibits a large degree of autocorrelation, making it impossible to assume independence between sequential observations. As we have learned, HMMs can account for the autocorrelation present in the data while assuming that the data were generated according to a finite set of (unobserved) behaviors making them a good candidate model for this type of data structure. Today, we will fit an HMM to the ODBA of a blacktip shark, calculated every second. 
-
-For the blacktip shark, we have time of day, water temperature, depth and ODBA. Since one of our goals is to use the time of observations (second of the day) as a covariate, we also need to extract this information from the time variable. For the interest of time, we use the 1-minute averaged depth and ODBA values so that the models can finish running within this tutorial. 
-
-```{r}
 # Load data 
 BlacktipB <- read_delim("BlacktipB.txt", 
                         delim = "\t", escape_double = FALSE, 
                         trim_ws = TRUE)
 
+```
+
+
+Looking at the ODBA values throughout the observed period, we find ODBA is unusually high at some times -- for this shark we assumed that values between 0 and 2 were consistent with what we expected. The dashed red line in the plot below corresponds to a ODBA value of 2, so those values that are above this line correspond to these high ODBA values throught the observed time period:
+
+```{r, fig.height= 4, fig.width=12,echo=F}
+
+BlacktipB_aux = BlacktipB %>% 
+  mutate(Time = as.POSIXct(Time,format = "%m/%d/%Y %H:%M")) #%>% 
+  # mutate(hour_to_sec =  as.integer(seconds(hm(format(Time, format = "%H:%M"))))) %>%
+  # group_by(Time) %>% mutate(sec = row_number()) %>% ungroup() %>% 
+  # mutate(sec = case_when(hour_to_sec == 53160 ~ as.integer(sec + 55),
+  #                        TRUE ~ sec),
+  #        hour_to_sec = hour_to_sec + sec)
+
+BlacktipB_aux %>% 
+  ggplot(aes(Time,ODBA)) + 
+  geom_line() + geom_hline(yintercept = 2,linetype="dashed",color="red")
+```
+
+Because accommodating extreme values can pose a problem for identification of an adequate state-dependent distribution in our HMM, we removed them from the data set. However, note that in general, deciding whether to remove extreme values or not will more likely depend on whether we find appropriate distributional forms that can accommodate them. Generally, we need to make sure that extreme values are in fact some artefact of the data collection process, not representative of a behavior of interest, or inconsistent with what we are trying to capture as well. Removing data is not good general practice but instead we can assess on a case-by-case basis. **For the interest of time, in this tutorial we will be working with the 1-minute average depth and ODBA values** -- this decrease significantly the amount of time required for the model fitting stage.
+
+```{r}
+
 # Transform into proper time format and take 1-min avg
-BlacktipB_1min = BlacktipB %>% 
+BlacktipB_1min = BlacktipB %>% filter(ODBA <= 2) %>%  
   mutate(Time = as.POSIXct(Time,format = "%m/%d/%Y %H:%M")) %>% 
   group_by(Time = cut(Time, breaks = "1 min")) %>%
   summarise(ODBA_avg = mean(ODBA),
-            temp_avg = mean(Temp)) %>%
+            temp_avg = mean(Temp),
+            depth_avg = mean(Depth)) %>%
   ungroup() %>%
   mutate(Time = as.POSIXct(Time,format = "%Y-%m-%d %H:%M:%S")) %>%
   as.data.frame()
@@ -74,50 +108,42 @@ head(BlacktipB_1min)
 ```
 
 
-# Fitting our model
+# Model fitting
 
-**Note:** 0 and 2 refers to the original dataset and I'm not sure what is value is the best to filter extreme observations
+We can see the 1-minute-mean time series here across the four days: 
 
-Looking at the ODBA values through the observed period, we find ODBA is unusually high at some times -- for this shark we assumed that values between 0 and 2 were consistent with what we expected. Because accommodating extreme values can pose a problem for identification of an adequate state-dependent distribution in our HMM, we removed them from the data set. However, note that in general, deciding whether to remove extreme values or not will more likely depend on whether we find appropriate distributional forms that can accommodate them. Generally, we need to make sure that extreme values are in fact some artefact of the data collection process, not representative of a behavior of interest, or inconsistent with what we are trying to capture as well. Removing data is not good general practice but instead we can assess on a case-by-case basis. 
-
-We can see the original time series here across the four days: 
-
-```{r}
+```{r,echo=F, fig.height= 4, fig.width=12}
 BlacktipB_1min %>% 
   ggplot(aes(Time,ODBA_avg)) + 
   geom_line() 
 ```
 
 
-
-And now, the modified time series with values above 2.0 removed. Note that here we ignore the fact that we do not have data for these time points.
-
-Now, we are ready to start to look for models for this data!
-
+After data cleansing, we are ready to start proposing candidate models for this data!
 
 Given our data, we are interested in finding possible behaviours through the observation process (ODBA). Let's take a quick look at the histogram of the observations.
 
 ```{r, echo=F}
 hist(BlacktipB_1min$ODBA_avg, 
-     breaks = 50, 
+     breaks = 80, 
      main="Histogram of ODBA", 
      xlab = "ODBA")
 ```
 
 
-As we have indicated before, the best way to start when fitting a hidden Markov model is to keep things simple. In this case, we will be considering 2 behavioral states, with gamma state-dependent distributions, and no covariates for the transition probability matrix. As mentioned in previous tutorials, now is time to implement the decisions that we have made so far. For the choice of initial parameter values we can take a quick peak at the data (e.g., using the plots above). From the plots above, we specify the means of our state-dependent distributions as 0.001 and 0.003. 
-
-
-Now that the data is ready for modeling, we choose to fit a 2-state hidden Markov model. For this purpose, we first need to assign the class `momentuHMMData` to the data in order to be presentable for the functions related to `momentuHMM`.
+The best way to start when fitting a hidden Markov model is to moving from simple models to more complex ones. For the purpose of this tutorial, we will be considering 2 behavioural states, with gamma state-dependent distributions -- these two states can be interpreted as proxies for "high-activity" behaviour and "low-activity" behaviour. As well, no additonal data will be incorporated in the state-switching dynamics -- which translates in not including covariances in the transition probabilities allocated in the transition probability matrix. `MomentumHMM` requires we propose initial values in order to perform the model fitting. For the choice of initial parameter values, performing an Exploratory Data Analysis (EDA) can be a good starting point. From the plots above, considering mean values of 0.001 and 0.003 for the high-activity behaviour and low-activity behaviour to be assigned to our state-dependent distributions seems to be reasonable. As part of the data preparation, we need to process the data using the prepData function, which will assign the class `momentuHMMData` to our dataframe. This will allow us to use the functions provided by `momentuHMM`.
 
 ```{r}
 BlacktipBData = prepData(BlacktipB_1min,coordNames = NULL)
 ```
 
-Let's fit our model and take a look at the output of the fitted model. 
+Let's fit our model and observe the output. 
 
 ```{r, cache=TRUE}
-fit1 = fitHMM(BlacktipBData,nbStates=2,dist=list(ODBA_avg="gamma"),Par0 = list(ODBA_avg=c(.001,.003,1,1)))
+fit1 = fitHMM(BlacktipBData,
+              nbStates=2,
+              dist=list(ODBA_avg="gamma"),
+              Par0 = list(ODBA_avg=c(.001,.003,1,1)))
 
 fit1
 ```
@@ -130,23 +156,25 @@ plot(fit1,breaks = 80)
 
 Let's look at the pseudo-residuals.
 
-```{r}
+```{r, fig.height= 4, fig.width=12}
 plotPR(fit1)
 ```
 
 We can also compute the most likely sequence of states.
 
-```{r, cache=TRUE}
+```{r, fig.height= 6, fig.width=12,cache=TRUE}
 # identify most likely state using the Viterbi algorithm
-BlacktipB_1min$state <- viterbi(fit1)
+BlacktipB_1min$state <- factor(viterbi(fit1))
 
 # proportion of the behaviour states during the observed period
 table(BlacktipB_1min$state)/length(BlacktipB_1min$state)
 
-BlacktipB_1min %>% mutate(day = day(Time)) %>% 
-  ggplot(aes(Time,state)) + 
-  #facet_wrap(~day,scales = "free_x") + 
-  geom_point()
+BlacktipB_1min %>% mutate(day = day(Time)) %>%
+  ggplot(aes(Time,ODBA_avg)) +
+  #facet_wrap(~day,scales = "free_x") +
+  geom_line(alpha=.1) +
+  geom_point(aes(shape=state,color=state))
+
 ```
 
 Let's include retryFits in the fitHMM function. This can take time to run.
@@ -176,7 +204,7 @@ fit1_s2_long
 
 Let's look at the pseudo-residuals.
 
-```{r}
+```{r, fig.height= 4, fig.width=12}
 plotPR(fit1_s2_long)
 ```
 
@@ -186,14 +214,22 @@ We can see that there is high autocorrelation and some deviation from normality.
 
 We can also compute the most likely sequence of states. What can we infer from this? Is there something else we can say from this? According to fitted model, can we see if there is any interesting pattern?
 
-```{r, cache=TRUE}
+```{r, fig.height= 6, fig.width=12}
 # identify most likely state using the Viterbi algorithm
-BlacktipB_1min$state_wildPar0 <- viterbi(fit1_s2_long)
+BlacktipB_1min$state_wildPar0 <- factor(viterbi(fit1_s2_long))
 
 # proportion of the behaviour states during the observed period
 table(BlacktipB_1min$state_wildPar0)/length(BlacktipB_1min$state_wildPar0)
 
-BlacktipB_1min %>% mutate(day = day(Time)) %>% ggplot(aes(Time,state_wildPar0)) + facet_wrap(~day) + geom_point()
+# BlacktipB_1min %>% mutate(day = day(Time)) %>% 
+#   ggplot(aes(Time,state_wildPar0)) + facet_wrap(~day) + geom_point()
+
+BlacktipB_1min %>% mutate(day = day(Time)) %>%
+  ggplot(aes(Time,ODBA_avg)) +
+  #facet_wrap(~day,scales = "free_x") +
+  geom_line(alpha=.1) +
+  geom_point(aes(shape=state_wildPar0,color=state_wildPar0))
+
 
 ```
 
@@ -234,11 +270,11 @@ plot(fit2,breaks=80)
 
 Let's explore the results. Do the coefficients vary much? What about the ACF? Did the autocorrelation decrease with this innovation?
 
-```{r}
+```{r, fig.height= 4, fig.width=12}
 plotPR(fit2)
 ```
 
-## Model section: Akaike Information Criteria (AIC)
+# Model section: Akaike Information Criteria (AIC)
 
 Akaike information criteria (AIC) is a model selection criteria to select models. In a few words, the higher, the better (or equivalently, since values are always negative, the closer to zero, the better).
 We can also take a quick look at the Akaike information criteria (AIC) for the two models to do a comparison. 
@@ -249,4 +285,11 @@ AIC(fit2)
 ```
 
 
-# Exercises
+# Exercise
+
+Reproduce the analysis from the blacktip shark data, but now consider three beahviour states instead of only two. 
+
+  - Is there any significant difference in ACF compared to the initial 2-state HMM? 
+  - Now include the variable `hour_to_sec` as a covariate and refit your extended model. What are the AIC and the log-likelihood values? Based on the Akaike Information Criteria, which seems to be the "best" model? 
+
+**Note:** In the case that you have your own data, feel free to use the code provided for th blacktip shark data analysis and adapt it to analyse your data. Explore!
