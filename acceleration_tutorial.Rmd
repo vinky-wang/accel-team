@@ -32,14 +32,21 @@ knitr::opts_chunk$set(message = FALSE)
 
 # Tutorial objectives
 
-The goal of this tutorial is to explore how to fit hidden Markov models to accelerometer data, incorporate covariates into the transition probabilities, and use a classic model selection criteria to select the "best" model out of different candidates.
 
-The goal of this tutorial is to explore fitting hidden Markov models to accelerometer data, incorporate covariates into the transition probabilities, and select for the best candidate model. We use 4 days of acceleration data obtained from a free-ranging blacktip reef shark at Palmyra Atoll in the central Pacific Ocean (data taken from Leos-Barajas et al. 2017). Specificly, the following topics wil be covered throughout this tutorial:
+The aim of this tutorial is to delve into the process of fitting hidden Markov models (HMMs) to accelerometer data, integrating covariates into transition probabilities, and employing a classic model selection criterion to choose the most suitable model from a set of candidates. For all of this procedures, we will be using the R package `MomentuHMM`, introduced in first part of this workshop series. 
 
-  - Resampling data (Down sampling) (???)
-  - Reef shark basic HMM example
-  - Adding covariates
-  - Visualization (Depth time series with decoded states?)
+The primary learning objectives in this first tutorial are to:
+
+  - Fit a basic HMM to accelerometer data
+  - incorporating and interpreting covariates on behaviour transition probabilities
+  - visualizing the Depth time series with decoded states
+
+
+<!-- The goal of this tutorial is to explore how to fit hidden Markov models to accelerometer data, incorporate covariates into the transition probabilities, and use a classic model selection criteria to select the "best" model out of different candidates. -->
+
+<!-- The goal of this tutorial is to explore fitting hidden Markov models to accelerometer data, incorporate covariates into the transition probabilities, and select for the best candidate model. We use 4 days of acceleration data obtained from a free-ranging blacktip reef shark at Palmyra Atoll in the central Pacific Ocean (data taken from Leos-Barajas et al. 2017). Specificly, the following topics wil be covered throughout this tutorial: -->
+
+  <!-- - Resampling data (Down sampling) (???) -->
 
 
 # Accelerometer data
@@ -53,7 +60,14 @@ knitr::include_graphics("ODBA_pic.png")
 
 ```
 
-ODBA and VeDBA can be used to reduce the dimensionality of three-dimension acceleration data while retaining important information. Further, because acceleration data is often at high temporal resolutions over time, it also naturally exhibits a large degree of autocorrelation, making it impossible to assume independence between sequential observations. HMMs can account for the autocorrelation present in the data while assuming that the data were generated according to a finite set of (unobserved) behaviors making them a good candidate model for this type of data structure. For the blacktip shark, we have time of day, water temperature, depth (in meters) and ODBA.
+ODBA and VeDBA can be used to reduce the dimensionality of three-dimension acceleration data while retaining important information. Further, because acceleration data is often at high temporal resolutions over time, it also naturally exhibits a large degree of autocorrelation, making it impossible to assume independence between sequential observations. HMMs can account for the autocorrelation present in the data while assuming that the data were generated according to a finite set of (unobserved) behaviors making them a good candidate model for this type of data structure. 
+
+## Blacktip Reef Shark data
+
+In this tutorial, we will be analyzing four days' worth of acceleration data from a free-ranging blacktip reef shark in the Palmyra Atoll located in the central Pacific Ocean. The acceleration data was collected from a 117-cm female shark (*Carcharhinus melanopterus*) species using a multisensor package. This package was attached to the shark's dorsal fin and recorded three-dimensional acceleration data at a rate of 20 Hz. It also recorded depth and water temperature at a rate of 1 Hz. After four days, the package, which was equipped with a VHF transmitter, detached from the shark and could be retrieved from the water surface (Papastamatiou et al. 2015). To assess the shark's active behavior, the authors calculated the average ODBA over 1-second intervals, resulting in a dataset comprising 320,214 observations. Consequently, the variables in the dataset consist of time of day, water temperature (in Celsius), depth (in meters), and ODBA.
+
+<!-- In this tutorial, we will work with four days of acceleration data gathered from a free-ranging blacktip reef shark at Palmyra Atoll in the central Pacific Ocean. Acceleormetry data was obtained from a free-ranging blacktip reef shark (*Carcharhinus melanopterus*) at Palmyra Atoll in the central Pacific Ocean (data taken from Leos-Barajas et al. 2017). A multisensor package was attached to the dorsal fin of a 117-cm female shark. The multisensor data-logger recorded three-dimensional acceleration (at 20 Hz), depth and water temperature (at 1 Hz) and was embedded in a foam float which detached from the shark after 4 days (Papastamatiou et al. 2015). The package also contained a VHF transmitter allowing recovery at the surface -->
+<!-- after detachment. In order to examine active behaviour, the average ODBA of the shark over 1-second intervals was calculated. This resulted in 321 815 observations. As a result, the variables for the dataset are the time of day, water temperature, depth (in meters) and the ODBA. -->
 
 ```{r}
 # R packages that will be used for this tutorial
@@ -71,6 +85,11 @@ BlacktipB <- read_delim("BlacktipB.txt",
 
 ```
 
+```{r}
+head(BlacktipB)
+```
+
+## Data processing 
 
 Looking at the ODBA values throughout the observed period, we find ODBA is unusually high at some times -- for this shark we assumed that values between 0 and 2 were consistent with what we expected. The dashed red line in the plot below corresponds to a ODBA value of 2, so those values that are above this line correspond to these high ODBA values throught the observed time period:
 
@@ -89,7 +108,7 @@ BlacktipB_aux %>%
   geom_line() + geom_hline(yintercept = 2,linetype="dashed",color="red")
 ```
 
-Because accommodating extreme values can pose a problem for identification of an adequate state-dependent distribution in our HMM, we removed them from the data set. However, note that in general, deciding whether to remove extreme values or not will more likely depend on whether we find appropriate distributional forms that can accommodate them. Generally, we need to make sure that extreme values are in fact some artefact of the data collection process, not representative of a behavior of interest, or inconsistent with what we are trying to capture as well. Removing data is not good general practice but instead we can assess on a case-by-case basis. **For the interest of time, in this tutorial we will be working with the 1-minute average depth and ODBA values** -- this decrease significantly the amount of time required for the model fitting stage.
+Because accommodating extreme values can pose a problem for identification of an adequate state-dependent distribution in our HMM, we removed them from the data set. However, note that in general, deciding whether to remove extreme values or not will more likely depend on whether we find appropriate distributional forms that can accommodate them. Generally, we need to make sure that extreme values are in fact some artefact of the data collection process, not representative of a behavior of interest, or inconsistent with what we are trying to capture as well. Removing data is not good general practice but instead we can assess on a case-by-case basis. Aditionally, for the interest of time, **in this tutorial we will be working with the 1-minute average depth, temperature and ODBA values** -- this decrease significantly the amount of time required for the model fitting stage.
 
 ```{r}
 
@@ -108,9 +127,7 @@ head(BlacktipB_1min)
 ```
 
 
-# Model fitting
-
-We can see the 1-minute-mean time series here across the four days: 
+We can see the 1-minute average ODBA time series here across the four days: 
 
 ```{r,echo=F, fig.height= 4, fig.width=12}
 BlacktipB_1min %>% 
@@ -118,10 +135,7 @@ BlacktipB_1min %>%
   geom_line() 
 ```
 
-
-After data cleansing, we are ready to start proposing candidate models for this data!
-
-Given our data, we are interested in finding possible behaviours through the observation process (ODBA). Let's take a quick look at the histogram of the observations.
+Now, we are interested in finding possible behaviours through the observed process (ODBA). Let's take a quick look at the histogram of the observations.
 
 ```{r, echo=F}
 hist(BlacktipB_1min$ODBA_avg, 
@@ -130,6 +144,13 @@ hist(BlacktipB_1min$ODBA_avg,
      xlab = "ODBA")
 ```
 
+\textbf{WORK FROM HERE}
+
+This give us an idea that we can be selecting two main behaviours:
+
+After selecting a data resolution and selecting a number of behaviour states, we are ready to start proposing candidate models for this data!
+
+# Model fitting
 
 The best way to start when fitting a hidden Markov model is to moving from simple models to more complex ones. For the purpose of this tutorial, we will be considering 2 behavioural states, with gamma state-dependent distributions -- these two states can be interpreted as proxies for "high-activity" behaviour and "low-activity" behaviour. As well, no additonal data will be incorporated in the state-switching dynamics -- which translates in not including covariances in the transition probabilities allocated in the transition probability matrix. `MomentumHMM` requires we propose initial values in order to perform the model fitting. For the choice of initial parameter values, performing an Exploratory Data Analysis (EDA) can be a good starting point. From the plots above, considering mean values of 0.001 and 0.003 for the high-activity behaviour and low-activity behaviour to be assigned to our state-dependent distributions seems to be reasonable. As part of the data preparation, we need to process the data using the prepData function, which will assign the class `momentuHMMData` to our dataframe. This will allow us to use the functions provided by `momentuHMM`.
 
