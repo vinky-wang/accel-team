@@ -331,20 +331,25 @@ BlacktipB_1min %>% mutate(day = day(Time)) %>%
 ```{r, cache=TRUE}
 # formula corresponding to the regression coefficients for the transition probabilities
 # re-prep data
-BlacktipB_1min <- BlacktipB_1min %>%
-  mutate(lag = 0:(n() - 1),
-         sin_part = sin(2*pi*lag*(1/60)/24),
-         cos_part = cos(2*pi*lag*(1/60)/24)
-         )
+# BlacktipB_1min <- BlacktipB_1min %>%
+#   mutate(lag = 0:(n() - 1),
+#          sin_part = sin(2*pi*lag*(1/60)/24),
+#          cos_part = cos(2*pi*lag*(1/60)/24)
+#          )
 
-BlacktipBData = prepData(BlacktipB_1min,coordNames = NULL, covNames = c("sin_part", "cos_part"))
+BlacktipB_1min = BlacktipB_1min %>%   
+  mutate(min_day = time_length(hm(format(Time,format = "%H:%M")),unit = "minutes"))
+
+
+BlacktipBData = prepData(BlacktipB_1min,coordNames = NULL, covNames = c("min_day"))
 
 # re-fit model 1
 fit1 = fitHMM(BlacktipBData,nbStates=2,dist=list(ODBA_avg="gamma"),
               Par0 = list(ODBA_avg=c(.05,.09,.02,.02)))
 
 
-formula = ~ sin_part + cos_part
+formula = ~ cosinor(min_day, period = 1440)
+
 Par0_fit2 <- getPar0(model=fit1, 
                      formula=formula)
 
@@ -362,7 +367,8 @@ fit2
 cfit1 = fitHMM(BlacktipBData,nbStates=2,dist=list(cODBA_avg="gamma"),
               Par0 = list(cODBA_avg=c*c(.05,.09,.02,.02)))
 
-formula = ~ sin_part + cos_part
+formula = ~ cosinor(min_day, period = 1440)
+
 Par0_cfit2 <- getPar0(model=cfit1, 
                      formula=formula)
 
@@ -382,10 +388,16 @@ plot(fit2,breaks=80)
 plot(cfit2,breaks=80)
 ```
 
-Let's explore the results. Do the coefficients vary much? What about the ACF? Did the autocorrelation decrease with this innovation?
+\textbf{Let's explore the results. Do the coefficients vary much? What about the ACF? Did the autocorrelation decrease with this innovation?}
 
 ```{r, fig.height= 4, fig.width=12}
 plotPR(cfit2)
+```
+
+\textbf{Explain this plot. Also include the idea of listing values in order to have outputs all together}
+
+```{r,cache=TRUE}
+plotStationary(cfit2, plotCI = TRUE)
 ```
 
 **Explain the plot for the transition probabilites**
