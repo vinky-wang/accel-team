@@ -37,11 +37,14 @@ The aim of this tutorial is to delve into the process of fitting hidden Markov m
 
 The primary learning objectives in this first tutorial are to:
 
-  - Fit a basic HMM to accelerometer data
-  - incorporating and interpreting covariates on behaviour transition probabilities
-  - visualizing the Depth time series with decoded states
+  - Fit a basic HMM to accelerometer data using `MomentuHMM`
+  - Incorporating and interpreting covariates on behaviour transition probabilities
+  - Visualizing the Depth time series with decoded states
+  - Use the Akaike Information Criteria for model selection
+  - Practice what you've learned by working on exercises
 
-
+<!-- Apply the acquired knowledge by completing exercises. -->
+  
 <!-- The goal of this tutorial is to explore how to fit hidden Markov models to accelerometer data, incorporate covariates into the transition probabilities, and use a classic model selection criteria to select the "best" model out of different candidates. -->
 
 <!-- The goal of this tutorial is to explore fitting hidden Markov models to accelerometer data, incorporate covariates into the transition probabilities, and select for the best candidate model. We use 4 days of acceleration data obtained from a free-ranging blacktip reef shark at Palmyra Atoll in the central Pacific Ocean (data taken from Leos-Barajas et al. 2017). Specificly, the following topics wil be covered throughout this tutorial: -->
@@ -89,7 +92,11 @@ BlacktipB <- read_delim("BlacktipB.txt",
 head(BlacktipB)
 ```
 
-**Mention something about missing data, and since we're taking the 1-minute average, we don't have to worry about irregular emissions. But this didn't exist since the beginning**
+Exploring a quick exploration of the data, we observe there are no missing values, so we don't have to worry about data imputation or data gaps.
+
+```{r}
+sum(is.na(BlacktipB))
+```
 
 ## Data processing 
 
@@ -105,9 +112,14 @@ BlacktipB_aux %>%
   geom_line() + geom_hline(yintercept = 2,linetype="dashed",color="blue")
 ```
 
-Because accommodating extreme values can pose a problem for identification of an adequate state-dependent distribution in our HMM, we removed them from the data set. However, note that in general, deciding whether to remove extreme values or not will more likely depend on whether we find appropriate distributional forms that can accommodate them. Generally, we need to make sure that extreme values are in fact some artefact of the data collection process, not representative of a behavior of interest, or inconsistent with what we are trying to capture as well. Removing data is not good general practice but instead we can assess on a case-by-case basis. Aditionally, for the interest of time, **in this tutorial we will be working with the 1-minute average depth, temperature and ODBA values** -- this decrease significantly the amount of time required for the model fitting stage. As well, we will process the Time variable in order to have a datetime format.
+Because accommodating extreme values can pose a problem for identification of an adequate state-dependent distribution in our HMM, we removed them from the data set. However, note that in general, deciding whether to remove extreme values or not will more likely depend on whether we find appropriate distributional forms that can accommodate them. Generally, we need to make sure that extreme values are in fact some artefact of the data collection process, not representative of a behavior of interest, or inconsistent with what we are trying to capture as well. Removing data is not good general practice but instead we can assess on a case-by-case basis.
 
-**Maybe mention something about the time resoultion choice -- contemporaneous independence assumption**
+While high-resolution data is often preferred for its ability to provide extensive information through detailed observations, it's important to consider the potential drawbacks, as highlighted in the animal movement tutorial. One significant disadvantage of fine-scale resolution is the high autocorrelation among observations made at smaller time intervals. This increased autocorrelation can present challenges when fitting a HMM because the model may not adequately account for it. In this tutorial, we will specifically work with 1-minute average depth, temperature, and ODBA values. This significantly reduces both the time required for the model fitting process and the autocorrelation between observations. Furthermore, since we are using 1-minute averages, irregular emissions are not a concern. Finally, we will modify the variable associated with the time of day in order to be properly formatted.
+
+<!-- High-resolution data is often preferred due to the wealth of information it provides, as it involves the collection of more detailed observations. However, as mentioned in the animal movement tutorial, there may be drawbacks of fine-scale resolution, as observations being made at smaller time intervals tend to exhibit higher autocorrelation among them. This high autocorrelation can pose challenges when fitting a HMM because it might not be adequately captured within the model. -->
+
+<!-- Aditionally, for the interest of time, **in this tutorial we will be working with the 1-minute average depth, temperature and ODBA values** -- this decrease significantly the amount of time required for the model fitting stage. As well, since we will be working with the 1-minute average, we don't have to worry about irregular emissions. Lastly, we will process the variable associated to the time of day so it has a proper format. -->
+
 
 ```{r}
 
@@ -161,7 +173,7 @@ From the latter, it's important to to emphasize a significant assumption being m
 
 $$ f(\boldsymbol{x_{t}} \mid S_{t} = s_{t}) = \prod_{p=1}^P f(x_{tp} \mid S_{t} = s_{t}),$$
 
-where $\boldsymbol{x_t} = (x_{t1},x_{t2},\ldots, x_{tP})$ represents the set of observations associated with the data streams at time $t$. For the current modeling procedure, we're dealing with a special case, since we only have one data stream. In this case, the contemporaneuous conditional independence assumption is not necessary. However, in other scenarios where the observation process includes two or more data streams, which is often the case (for instance, step length and step angle), this assumption becomes crucial, as it enables the modeling of each data stream.
+where $\boldsymbol{x_t} = (x_{t1},x_{t2},\ldots, x_{tP})$ represents the set of observations associated with the data streams at time $t$. For the current modeling procedure, we're dealing with a special case, since we only have one data stream. In this case, the contemporaneuous conditional independence assumption is not necessary. However, in other scenarios where the observation process includes two or more data streams, which is often the case (for instance, step length and turning angle), this assumption becomes crucial, as it enables the modeling of each data stream.
 
 
 Finally, for this model fitting stage, no additonal data will be incorporated in the state-switching dynamics -- which translates in not including covariances in the transition probabilities allocated in the transition probability matrix. As part of the data preparation, we need to process the data using the `prepData` function, which will assign the class `momentuHMMData` to our dataframe. This will allow us to use the functions provided by `momentuHMM`. Since we're not using coordinate variables to transform them into step lengths, we need to seet the parameter coordNames to `NULL`.
@@ -286,7 +298,26 @@ fit1_s2
 
 Seems nothing changed at all!
 
-Let's go further by introducing a high perturbation to the initial values. Specifically, instead of 5 and 9, we will use 0.1 and 100 for the mean parameters. Additionally, for the initial values related to the standard deviation, we will set them at 100 for each state-dependent distribution. It's important to emphasize that regardless of the initial values, the coefficients should be the same. Indeed, we can observe that the estimated coefficients and log-likelihood values are still similar.
+
+Now, we try a different set of initial values such that these are close to each other. Specifically, for the mean parameters, we provide values that are closer. Even when doing this, the outcome is consistent with the same model fitting, signifying that our inference process is robust. 
+
+<!-- It's important to emphasize that regardless of the initial values, the coefficients should be the same. Indeed, we can observe that the estimated coefficients and log-likelihood values are still similar. -->
+
+```{r, cache=TRUE}
+mu2 = c*c(.04,.06) # This gives 4 and 6 as initial values for estimating the mean parameters 
+sigma2 = c*c(.02,.02) # This gives 2 and 2 as initial values for estimating the mean parameters
+
+fit1_s3 <- fitHMM(BlacktipBData,
+                  nbState = 2,
+                  stateNames = stateNames,
+                  dist=list(cODBA_avg="gamma"),
+                  Par0 = list(cODBA_avg=c(mu2,sigma2)))
+
+fit1_s3
+```
+
+
+Finally, let's go further by introducing a high perturbation to the initial values. Specifically, instead of 5 and 9, we will use 0.1 and 100 for the mean parameters. Additionally, for the initial values related to the standard deviation, we will set them at 100 for each state-dependent distribution. In this case, the parameter estimates remain unchanged except for one significant change: the states have swapped. In other words, the parameter initially associated with state 1 has now shifted to state 2, and vice versa. Consequently, everything has transitioned to the location of the other state, while otherwise remaining unaltered.
 
 ```{r, cache=TRUE}
 mu1 = c*c(.001,1)
@@ -299,20 +330,6 @@ fit1_s2_long <- fitHMM(BlacktipBData,
                   Par0 = list(cODBA_avg=c(mu1,sigma1)))
 
 fit1_s2_long
-```
-
-Finally, we try a different set of initial values such that these are close to each other. Specifically, for the mean parameters, we provide values that are closer. Even when doing this, the outcome is consistent with the same model fitting, signifying that our inference process is robust. In this case, the parameter estimates remain unchanged except for one significant change: the states have swapped. In other words, the parameter initially associated with state 1 has now shifted to state 2, and vice versa. Consequently, everything has transitioned to the location of the other state, while otherwise remaining unaltered.
-
-```{r, cache=TRUE}
-mu2 = c*c(.04,.06) # This gives 4 and 6 as initial values for estimating the mean parameters 
-sigma2 = c*c(.02,.02) # This gives 2 and 2 as initial values for estimating the mean parameters
-
-fit1_s3 <- fitHMM(BlacktipBData,
-                  nbState = 2,
-                  dist=list(cODBA_avg="gamma"),
-                  Par0 = list(cODBA_avg=c(mu2,sigma2)))
-
-fit1_s3
 ```
 
 By employing the `plotPR` function, we can observe that the pseudo-residuals remained consistent, despite the state parameter switching.
@@ -371,6 +388,7 @@ Par0_fit2 <- getPar0(model=fit1,
 
 fit2 = fitHMM(BlacktipBData,
               nbStates=2,
+              stateNames = stateNames,
               dist=list(ODBA_avg="gamma"),
               Par0 = Par0_fit2$Par,formula=formula)
 
@@ -388,7 +406,9 @@ formula = ~ cosinor(min_day, period = 1440)
 Par0_cfit2 <- getPar0(model=cfit1, 
                      formula=formula)
 
-cfit2 = fitHMM(BlacktipBData,nbStates=2,
+cfit2 = fitHMM(BlacktipBData,
+               nbStates=2,
+               stateNames = stateNames,
                dist=list(cODBA_avg="gamma"),
                Par0 = Par0_cfit2$Par,formula=formula)
 
@@ -413,6 +433,7 @@ list(original_ODBA = fit2$mle$beta, scaled_ODBA = cfit2$mle$beta)
 
 ```
 
+By examining the output of the `plot` function, we can observe the variations in transition probabilities for each minute of the day. These are the same for both models given the mentioned above.
 
 ```{r, cache=TRUE}
 plot(fit2,breaks=80)
@@ -422,15 +443,14 @@ plot(fit2,breaks=80)
 plot(cfit2,breaks=80)
 ```
 
-**Explain the plot for the transition probabilites**
 
-**Let's explore the results. Do the coefficients vary much? What about the ACF? Did the autocorrelation decrease with this innovation?**
+Examining the pseudo-residual time series, qq-plots, and autocorrelation functions (ACF), we note very similar outcomes to the model with no covariates. This similarity is primarily attributed to the fact that the parameters associated with the state-dependent distributions remained virtually unchanged.
 
 ```{r, fig.height= 4, fig.width=12}
 plotPR(cfit2)
 ```
 
-**Explain this plot**
+We can also plot the stationary state probabilities. These represent how likely the shark is to be at each behavioural state for each minute of the day. According to the plot below, the shark tends to be in the  
 
 ```{r,cache=TRUE}
 plotStationary(cfit2, plotCI = TRUE)
