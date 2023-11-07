@@ -33,11 +33,11 @@ knitr::opts_chunk$set(message = FALSE)
 # Tutorial objectives
 
 
-The aim of this tutorial is to delve into the process of fitting hidden Markov models (HMMs) to accelerometer data, integrating covariates into transition probabilities, and employing a classic model selection criterion to choose the most suitable model from a set of candidates. For all of this procedures, we will be using the R package `MomentuHMM`, introduced in first part of this workshop series. 
+The aim of this tutorial is to delve into the process of fitting hidden Markov models (HMMs) to accelerometer data, integrating covariates into transition probabilities, and employing a classic model selection criterion to choose the most suitable model from a set of candidates. For all of this procedures, we will be using the R package `momentuHMM`, introduced in first part of this workshop series. 
 
 The primary learning objectives in this first tutorial are to:
 
-  - Fit a basic HMM to accelerometer data using `MomentuHMM`
+  - Fit a basic HMM to accelerometer data using `momentuHMM`
   - Incorporating and interpreting covariates on behaviour transition probabilities
   - Visualizing the Depth time series with decoded states
   - Use the Akaike Information Criteria for model selection
@@ -122,11 +122,10 @@ While high-resolution data is often preferred for its ability to provide extensi
 
 
 ```{r}
-
 # Transform into proper time format and take 1-min avg
 BlacktipB_1min = BlacktipB %>% filter(ODBA <= 2) %>%  
   mutate(Time = as.POSIXct(Time,format = "%m/%d/%Y %H:%M")) %>% 
-  group_by(Time = cut(Time, breaks = "1 min")) %>%
+  group_by(Time = floor_date(Time, unit = "1 min")) %>%
   summarise(ODBA_avg = mean(ODBA),
             temp_avg = mean(Temp),
             depth_avg = mean(Depth)) %>%
@@ -362,113 +361,115 @@ BlacktipB_1min %>% mutate(day = day(Time)) %>%
 
 During the model fitting process, we pointed out the absence of covariates in the transition probabilities. Additionally, the ACF plot indicated a high autocorrelation between observations that the model failed to capture. Perhaps by considering the inclusion of other data streams, we could potentially reduce this autocorrelation. To explore this, we can investigate the incorporation of covariates into the state-switching dynamics to observe the potential outcomes.
 
-
 # Incorporating covariates
 
-As in Leos-Barajas et al. 2017, we can incorporate additional information that may help explain the ODBA values. In this context, we are considering the minute of the day for each observation. To represent time of day, we utilize two trigonometric functions with a 24-hour period: $cos(2\pi (t/60)/24)$ and $sin(2\pi (t/60)/24)$. Using the `cosinor` function, we can transform our data stream into a format that is suitable for analysis. As well, we need to provide the formula corresponding to the regression that will be stored in the transition probability values. We will fit two models while taking these factors into account, one using the original 1-minute average ODBA data stream and the other using the scaled version. 
+We can add covariates in the HMM to the transition probabilities (i.e. state process) or the state-dependent distribution (i.e. the observation process).
 
+For example, we might be interested in including the time-of-day for each recorded observation as a covariate. We let the time of day fluctuate based on trigonometric functions, $cos(2\pi (t/60)/24)$ and $sin(2\pi (t/60)/24$. We construct this using the `cosinor` function and set `period = 1440` corresponding to the minute-resolution (i.e. $1440 = 60 \times 24$) . 
 
 ```{r, cache=TRUE}
+# Add tod covariate
+BlacktipB_1min$tod = hour(BlacktipB_1min$Time) + minute(BlacktipB_1min$Time) / 60
 
-BlacktipB_1min = BlacktipB_1min %>%   
-  mutate(min_day = time_length(hm(format(Time,format = "%H:%M")),unit = "minutes"))
+tod <- BlacktipB_1min$tod
 
+# Prep data 
+BlacktipBData = prepData(BlacktipB_1min,coordNames = NULL, covNames = "tod")
 
-BlacktipBData = prepData(BlacktipB_1min,coordNames = NULL, covNames = c("min_day"))
+formula = ~ cosinor(tod, period = 1440)
+```
 
-# re-fit model 1
-fit1 = fitHMM(BlacktipBData,nbStates=2,dist=list(ODBA_avg="gamma"),
-              Par0 = list(ODBA_avg=c(.05,.09,.02,.02)))
+If our aim is to account for the effect that the time of day may have on the probability of switching between states then we incorporate the `tod` covariate in the transition probabilities. We demonstrate this based on the previously fitted model `fit1`. We use `getPar0` to specify our initial parameters based on the estimated parameters of `fit1`.
 
+```{r}
+Par0_fit4 <- getPar0(model = fit1, formula = formula)
+```
 
-formula = ~ cosinor(min_day, period = 1440)
+We fit the model where the `formula` defines the model formula for the transition probabilities. 
 
-Par0_fit2 <- getPar0(model=fit1, 
-                     formula=formula)
-
-fit2 = fitHMM(BlacktipBData,
+```{r}
+fit4 = fitHMM(BlacktipBData,
               nbStates=2,
               stateNames = stateNames,
               dist=list(ODBA_avg="gamma"),
-              Par0 = Par0_fit2$Par,formula=formula)
-
-fit2
+              beta0 = Par0_fit4$beta,
+              Par0 = Par0_fit4$Par,
+              formula = formula)
+fit4
 ```
 
-```{r, cache=TRUE}
-
-# re-fit model 1
-cfit1 = fitHMM(BlacktipBData,nbStates=2,dist=list(cODBA_avg="gamma"),
-              Par0 = list(cODBA_avg=c*c(.05,.09,.02,.02)))
-
-formula = ~ cosinor(min_day, period = 1440)
-
-Par0_cfit2 <- getPar0(model=cfit1, 
-                     formula=formula)
-
-cfit2 = fitHMM(BlacktipBData,
-               nbStates=2,
-               stateNames = stateNames,
-               dist=list(cODBA_avg="gamma"),
-               Par0 = Par0_cfit2$Par,formula=formula)
-
-cfit2
-```
-
-Looking at the output, we note that both models produce highly similar, if not identical, parameter estimates for the transition probabilities and the initial state distribution. However, the parameters related to the state-dependent distributions differ, primarily due to the scaling factor employed. Similarly to the model without covariates, the minimum log-likelihood differs, once more attributed to the transformation of the ODBA data.
+We can visualise how likely the shark is to be in each state at each time of day. 
 
 ```{r}
-
-# Negative log-likelihood 
-list(original_ODBA = fit2$mod$minimum, scaled_ODBA = cfit2$mod$minimum)
-
-# Parameter estimates for state-dependent distribution related to the ODBA data stream 
-list(original_ODBA = fit2$mle$ODBA_avg, scaled_ODBA = cfit2$mle$cODBA_avg)
-
-# Parameter estimates the initial state distribution 
-list(original_ODBA = fit2$mle$delta, scaled_ODBA = cfit2$mle$delta)
-
-# Regression coefficients for the transtition probabilities
-list(original_ODBA = fit2$mle$beta, scaled_ODBA = cfit2$mle$beta)
-
+plotStationary(fit4, plotCI = TRUE)
 ```
 
-By examining the output of the `plot` function, we can observe the variations in transition probabilities for each minute of the day. These are the same for both models given the mentioned above.
+We observe that the shark is more likely to be in the low activity state near midday and more likely to be in the high activity state outside these hours. 
 
-```{r, cache=TRUE}
-plot(fit2,breaks=80)
+
+Alternatively, our aim may be to account for the effect that the time of day may have on observed acceleration (i.e., ODBA) then we incorporate the `tod` covariate in the state-dependent distribution.
+
+For example, we can model the mean parameter of the state-dependent Gamma distribution as a function of `tod`. 
+
+```{r}
+# Define design matrix for ODBA_avg
+DM <- list(ODBA_avg = list(mean = formula, sd = ~1))
 ```
 
-```{r, cache=TRUE}
-plot(cfit2,breaks=80)
+Building off from our `fit1` model again, we use `getPar0` to specify our initial parameters based on the estimated parameters of `fit1`.
+
+```{r}
+# Fit model
+## Same parameter values from fit1
+Par0_fit5 <- getPar0(model = fit1, 
+                     DM = DM)
+
+fit5 <- fitHMM(BlacktipBData,
+                  nbState = 2,
+                  dist=list(ODBA_avg="gamma"),
+                  Par0 = Par0_fit5$Par,
+                  DM = DM)
+
+fit5
 ```
 
+We can visualise the estimated mean parameter over the time of day. 
 
-Examining the pseudo-residual time series, qq-plots, and autocorrelation functions (ACF), we note very similar outcomes to the model with no covariates. This similarity is primarily attributed to the fact that the parameters associated with the state-dependent distributions remained virtually unchanged.
-
-```{r, fig.height= 4, fig.width=12}
-plotPR(cfit2)
+```{r}
+plot(fit5, ask = F, plotCI = T)
 ```
 
-We can also plot the stationary state probabilities. These represent how likely the shark is to be at each behavioural state for each minute of the day. According to the plot below, the shark tends to be in the  
+We see that the mean of the 1-minute averaged ODBA values vary based on the time of day for the high-activity state (state 2). In particular, the ODBA values increase from around 8am to 12am then decrease from 12-8am. The mean of the 1-minute averaged ODBA values seem to vary less with the low activity state (state 1) as it persistently increases over a 24-h period.
 
-```{r,cache=TRUE}
-plotStationary(cfit2, plotCI = TRUE)
+
+## Model Comparison
+
+```{r}
+{par(mfrow=c(3,1))
+plotPR(fit1)
+plotPR(fit4)
+plotPR(fit5)
+}
 ```
+
+There doesn't seem to be major differences in the qq-plot and acf-plot of the pseudo-residual although there is still the residual autocorrelation and deviations in the upper tail. Perhaps including more informative covariates or increasing the number of states might help. 
+
 
 
 # Model section: Akaike Information Criteria (AIC)
 
-The Akaike Information Criteria (AIC) serves as a model selection criterion for choosing models. In short, the lower the AIC value, the better. We can quickly examine the AIC for both models with the `AIC` function, for both the original and transformed data, to make a comparison. In both instances, the model that incorporates covariates exhibits a lower AIC, suggesting that it is better suited for modeling the data.
+The Akaike Information Criteria (AIC) provides a measure of the trade-off between model fit and complexity. It is commonly used as a model selection criterion to select for the most suitable model among a set of candidate models. Lower AIC scores indicate a better balance between model fit and complexity. 
+
+We can compare the AIC scores using the `AIC` function for our original HMM (`fit1`), the added `tod` covariate in the state-dependent means HMM (`fit4`), and the added `tod` covariate in the transition probabilities HMM (`fit5`). 
 
 ```{r}
-list(AIC_baseline_model = AIC(fit1), 
-     AIC_model_with_covariates = AIC(fit2))
-
-list(AIC_baseline_model_scaled_ODBA = AIC(cfit1), 
-     AIC_model_with_covariates_scaled_ODBA = AIC(cfit2))
-
+data.frame(AIC(fit1),
+           AIC(fit4),
+           AIC(fit5))
 ```
+
+We see that incorporating covariates in either the state-dependent distribution or transition probabilities lowers the AIC. `fit4` has the lowest AIC which suggests that it might most suited for modelling this data among the models under consideration.
+
 
 
 # Exercises
@@ -481,3 +482,4 @@ $$ $$
     - What are the AIC and the log-likelihood values? How are these different from the values related to the second model fitted. Based on the Akaike Information Criteria, which model seems to be the "best"? 
 
 <!-- **Note:** In the case that you have your own data, feel free to use the code provided for th blacktip shark data analysis and adapt it to analyse your data. Explore! -->
+
