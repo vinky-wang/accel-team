@@ -1,0 +1,134 @@
+---
+title: 'Acceleration Tutorial Solutions' 
+author: "Marco Gallegos Herrada and Vinky Wang"
+output: 
+  bookdown::html_document2:
+    number_sections: true
+    highlight: tango
+    toc: yes
+    toc_float: yes
+    theme: cosmo
+editor_options:
+  chunk_output_type: console
+---
+
+```{=html}
+<style>
+body
+  { counter-reset: source-line 0; }
+pre.numberSource code
+  { counter-reset: none; }
+</style>
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(cache = TRUE)
+knitr::opts_chunk$set(message = FALSE)
+```
+
+
+```{r}
+# R packages that will be used for this tutorial
+library(readr)
+library(momentuHMM)
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+
+
+# Load data 
+BlacktipB <- read_delim("BlacktipB.txt", 
+                        delim = "\t", escape_double = FALSE, 
+                        trim_ws = TRUE)
+
+# Transform into proper time format and take 1-min avg
+BlacktipB_1min = BlacktipB %>% filter(ODBA <= 2) %>%  
+  mutate(Time = as.POSIXct(Time,format = "%m/%d/%Y %H:%M")) %>% 
+  group_by(Time = floor_date(Time, unit = "1 min")) %>%
+  summarise(ODBA_avg = mean(ODBA),
+            temp_avg = mean(Temp),
+            depth_avg = mean(Depth)) %>%
+  ungroup() %>%
+  mutate(Time = as.POSIXct(Time,format = "%Y-%m-%d %H:%M:%S")) %>%
+  as.data.frame()
+```
+
+
+# Exercise 2
+
+**Note:** There are multiple ways to incorporate the other variables into the HMM. Here, we demonstrate how the observed acceleration (i.e., ODBA) can vary depending on the covariates of `temp_avg` and `depth_avg`. In particular, we incorporate `temp_avg` to the mean and `depth_avg` to the standard deviation of the state-dependent Gamma distribution. This is equivalent to allowing for the mean of the 1-minute averaged ODBA values to vary based on the 1-minute averaged temperatures and the variability to vary based on the 1-minute averaged depths. 
+
+Returning to the `fit1` example,
+
+```{r}
+BlacktipBData = prepData(BlacktipB_1min,coordNames = NULL)
+stateNames = c("low-activity","high-activity") # define names for each state
+mu0 = c(.05,.09) # initial values for the mean of each behavioural state
+sigma0 = c(.02,.02) # initial values for the standard deviation of each behavioural state
+fit1 = fitHMM(BlacktipBData,
+              nbStates=2,
+              stateNames = stateNames,
+              dist=list(ODBA_avg="gamma"),
+              Par0 = list(ODBA_avg=c(mu0,sigma0)))
+
+fit1
+```
+
+
+
+we prepare the data this time by including these covariate names in `prepData`
+
+```{r}
+# Prep data 
+BlacktipBData = prepData(BlacktipB_1min,coordNames = NULL, covNames = c("temp_avg", "depth_avg"))
+```
+
+and define the design matrix as
+
+```{r}
+temp_avg <- BlacktipBData$temp_avg
+depth_avg <- BlacktipBData$depth_avg
+DM <- list(ODBA_avg = list(mean = ~temp_avg, 
+                           sd = ~depth_avg))
+```
+
+We use `getPar0` to specify the initial parameters based on the estimated parameters of `fit1`
+
+```{r}
+## Same parameter values from fit1
+Par0_fitcov <- getPar0(model = fit1, 
+                     DM = DM)
+
+fitcov <- fitHMM(BlacktipBData,
+                  nbState = 2,
+                  dist=list(ODBA_avg="gamma"),
+                  Par0 = Par0_fitcov$Par,
+                  DM = DM)
+
+fitcov
+```
+
+We can visualise the estimated mean parameter over the 1-minute averaged temperatures
+
+```{r}
+plot(fitcov, ask = F, plotCI = T)
+```
+
+We see that for the low-activity state, the mean of the 1-minute averaged ODBA values decrease for increasing 1-minute averaged temperatures and the standard deviation of the 1-minute averaged ODBA values increase for increasing 1-minute averaged depths. For the high-activity state, the mean of the 1-minute averaged ODBA values increase for increasing 1-minute averaged temperatures, however with greater uncertainty compared to the low-activity state. The standard deviation of the 1-minute averaged ODBA values increase for increasing 1-minute averaged depths. 
+
+The AIC and the log-likelihood values are -29060.42 and 14541.21.
+
+```{r}
+AIC(fitcov)
+fitcov
+```
+
+This AIC value is the lowest among the models considered in Section 5 of the tutorial. This suggest that perhaps incorporating the covariates of `temp_avg` and `depth_avg` in the state-dependent distribution seems to be the "best" model. Note that again, "best" refers to among the candidate models that we are considering. In addition, if the AIC score was close to the AIC score for another model that has less variables and/or makes more ecological sense then this would be the better model in that case. 
+
+
+
+
+
+
