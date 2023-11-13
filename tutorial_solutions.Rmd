@@ -3,7 +3,7 @@ title: 'Acceleration Tutorial Solutions'
 author: "Marco Gallegos Herrada and Vinky Wang"
 output: 
   bookdown::html_document2:
-    number_sections: true
+    number_sections: false
     highlight: tango
     toc: yes
     toc_float: yes
@@ -55,6 +55,28 @@ BlacktipB_1min = BlacktipB %>% filter(ODBA <= 2) %>%
   as.data.frame()
 ```
 
+# Exercise 1
+
+```{r}
+BlacktipBData = prepData(BlacktipB_1min,coordNames = NULL)
+
+mu30 = c(0.05,.09,.12)
+sigma30 = c(0.02,.02,.02)
+stateNames = c("low-activity","moderate-activity","high-activity")
+
+fit1_s3 <- fitHMM(BlacktipBData,
+                       nbState = 3,
+                       stateNames = stateNames,
+                       dist=list(ODBA_avg="gamma"),
+                       Par0 = list(ODBA_avg=c(mu30,sigma30)))
+
+fit1_s3
+
+
+plot(fit1_s3,breaks=80)
+plotPR(fit1_s3)
+
+```
 
 # Exercise 2
 
@@ -126,9 +148,6 @@ fitcov
 ```
 
 This AIC value is the lowest among the models considered in Section 5 of the tutorial. This suggest that perhaps incorporating the covariates of `temp_avg` and `depth_avg` in the state-dependent distribution seems to be the "best" model. Note that again, "best" refers to among the candidate models that we are considering. In addition, if the AIC score was close to the AIC score for another model that has less variables and/or makes more ecological sense then this would be the better model in that case. 
-
-
-
 
 
 
